@@ -1,10 +1,15 @@
 CC = gcc
 CFLAG = -g -Wall
 
-all: scheduler
+all: scheduler test
 
 scheduler: scheduler.o ts_pcap.o
-	$(CC) $(CFLAGS) $^ -o $@
+	$(CC) $(CFLAGS) -lpcap $^ -o $@
+
+test: test_pcap
+
+test_pcap: test_pcap.o ts_pcap.o
+	$(CC) $(CFLAGS) -lpcap $^ -o $@
 
 scheduler.o : scheduler.h
 ts_pcap.o : scheduler.h
