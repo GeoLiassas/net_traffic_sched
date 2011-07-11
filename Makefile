@@ -1,5 +1,5 @@
 CC = gcc
-CFLAG = -g -Wall
+CFLAGS = -g -Wall
 
 all: scheduler test
 
@@ -11,10 +11,10 @@ test: test_pcap
 test_pcap: test_pcap.o ts_pcap.o
 	$(CC) $(CFLAGS) -lpcap $^ -o $@
 
-scheduler.o : scheduler.h
+scheduler.o : scheduler.h dclist.h
 ts_pcap.o : scheduler.h
 
 
 clean:
-	/bin/rm -f *.o
+	/bin/rm -f *.o *.gch
 
