@@ -2,8 +2,10 @@
 #include <stdlib.h>
 #include "scheduler.h"
 
-#define BW_PER_SEC 1024
+#define BW_PER_SEC 1024000
 #define MAX_INTERVAL 100
+
+extern tfc_t *build_traffic_pcap(char *);
 
 int schedule(tfc_t* head) 
 {
@@ -22,7 +24,7 @@ int schedule(tfc_t* head)
         
         pkt_interval = itr->time - itr_prev->time;
         pkt_trans_time = (int)((double)itr_prev->size / BW_PER_SEC * 1000);
-
+        printf(" %d | %d \n", pkt_interval, pkt_trans_time);
         if (pkt_interval <= itr_prev->priority * MAX_INTERVAL 
             && pkt_interval >= pkt_trans_time) {
             itr_prev->time = itr->time - pkt_trans_time;
@@ -34,6 +36,7 @@ int schedule(tfc_t* head)
 
 int main()
 {
+    /*  DEBUG DCLIST
     struct lnode head = {&head, &head};
     struct lnode *lp, *lc;
     head.id = 0;
@@ -64,8 +67,29 @@ int main()
     printf("####%lu\n", offsetof(tfc_t, priority));
     printf("####%lu\n", offsetof(tfc_t, time));
     printf("####%lu\n", offsetof(tfc_t, list));
+    */
 
-    ((tfc_t *)0)->size;
+    tfc_t *headt, *tp;
+    struct lnode *ln;
+    int count = 0;
+    FILE *pre, *post;
+
+    headt = build_traffic_pcap("pcap_data/browse2.pcap");
+    pre = fopen("pre.test.output", "w+");
+    dclist_foreach(ln, &headt->list) {
+        tp = dclist_outer(ln, tfc_t, list);
+        fprintf(pre, "%d|%llu\n", count++, tp->time);
+    }
+    fclose(pre);
     
+    count = 0;
+    schedule(headt);
+    post = fopen("post.test.output", "w+");
+    dclist_foreach(ln, &headt->list) {
+        tp = dclist_outer(ln, tfc_t, list);
+        fprintf(post, "%d|%llu\n", count++, tp->time);
+    }
+    fclose(post);
+
     return 0;
 }

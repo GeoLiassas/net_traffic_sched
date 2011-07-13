@@ -5,13 +5,14 @@
 
 typedef struct traffic_data {
     unsigned char *pkt;
-    int size;
-    int priority;
-    int time;
-    struct lnode list;
+    unsigned int size;              /* Size of the packet */
+    int priority;                   /* Priority of the packet */
+    unsigned long long time;        /* In millisecond */
+    struct lnode list;              /* Internel list structure */
 } tfc_t;
 
 int schedule(tfc_t*); 
 
+#define MS_IP "192.168.10.1"
 #endif
 
