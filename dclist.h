@@ -36,22 +36,29 @@ static inline void dclist_r_add(struct lnode *nw, struct lnode *head)
 }
 
 #define DCLIST_INIT(name) \
-    (name) = {&(name), &(name)}
+    {&(name), &(name)}
 
 #define dclist_foreach(csr, head) \
     for (csr = (head)->next; csr != (head); csr = csr->next)
+
+#define dclist_foreach_safe(csr, n, head) \
+    for (csr = (head)->next, n = (csr)->next; csr != (head); \
+         csr = n, n = csr->next)
 
 #define dclist_rforeach(csr, head) \
     for (csr = (head)->prev; csr != (head); csr = csr->prev)
 
 #define dclist_outer(lptr, type, member_name) \
     container_of(lptr, type, member_name)
-    
+
+#ifndef container_of
 #define container_of(ptr, type, member) ({			\
 	const typeof( ((type *)0)->member ) *__mptr = (ptr);	\
 	(type *)( (char *)__mptr - offsetof(type,member) );})
+#endif /* container_of */
 
+#ifndef offsetof
 #define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
-
+#endif /* offsetof */
 
 #endif

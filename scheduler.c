@@ -1,11 +1,15 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <string.h>
 #include "scheduler.h"
 
 #define BW_PER_SEC 1024000
 #define MAX_INTERVAL 100
 
 extern tfc_t *build_traffic_pcap(char *);
+extern int result_compare(tfc_t *, char *, int);
 
 int schedule(tfc_t* head) 
 {
@@ -74,6 +78,11 @@ int main()
     int count = 0;
     FILE *pre, *post;
 
+    int proc_fd;
+    char text_buf[2048];
+
+    int test_counter = 200;
+
     headt = build_traffic_pcap("pcap_data/browse2.pcap");
     pre = fopen("pre.test.output", "w+");
     dclist_foreach(ln, &headt->list) {
@@ -90,6 +99,26 @@ int main()
         fprintf(post, "%d|%llu\n", count++, tp->time);
     }
     fclose(post);
+
+/*  Transfer sharped pkt information to the kernel module
+ *  --------------------------------------------------------
+    proc_fd = open("/proc/sch_80211/prediction", O_WRONLY, 0);
+    dclist_foreach(ln, &headt->list) {
+        if (test_counter-- == 0)
+            break;
+        tp = dclist_outer(ln, tfc_t, list);
+        sprintf(text_buf, "%llu\t%u\t%d\t\n", tp->time, tp->size, tp->priority);
+        write(proc_fd, text_buf, strlen(text_buf));
+    }
+
+    write(proc_fd, "723", 4);
+    close(proc_fd);
+*/
+
+/* Compare results
+ * ---------------------------------------------------------*/
+    result_compare(headt, "pcap_data/browse2_sharped_10_10.pcap", 210);
+    
 
     return 0;
 }

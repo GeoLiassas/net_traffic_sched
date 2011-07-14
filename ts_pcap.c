@@ -19,7 +19,10 @@
 
 
 tfc_t *build_traffic_pcap(char *);
+
 int replay_pcap(char *);
+
+int result_compare(tfc_t *, char *, int count);
 
 static int rawfd;
 
@@ -31,7 +34,18 @@ send_pkt(int fd, void *data, int len,
     struct timeval local_copy;
     int n;
     
+    /* The slect call might change the value of struct timeval,
+     * so we do a copy here, and also modify the timeval if 
+     * tv_usec is a negative number.
+     */
     memcpy(&local_copy, delay, sizeof(struct timeval));
+    if (local_copy.tv_usec < 0) {
+        local_copy.tv_sec--;
+        local_copy.tv_usec += 1000000;
+    }
+    printf("send_pkt: delaytime: ");
+    ptime(&local_copy);
+    /* Using select call to achieve packet delay */
     if((n = select(0, NULL, NULL, NULL, &local_copy)) == -1)
         perror("send_pkt: select");
     
@@ -109,6 +123,8 @@ int replay_pcap(char *fpath)
 
     int eth_proto, n;
     struct sockaddr_in sendto_addr;
+    
+    int count = 0;
 
     memset(&time_diff, 0, sizeof(struct timeval));
     memset(&prev_time, 0, sizeof(struct timeval));
@@ -126,7 +142,7 @@ int replay_pcap(char *fpath)
 
     while ((packet = pcap_next(handle, &header)) != NULL) {
         p = (u_char *) packet;
-
+        printf("%d|", count++);
         ptime(&header.ts);
         eth_hdr = (struct ether_header *) p;
         if((eth_proto = ntohs(eth_hdr->ether_type)) == ETHERTYPE_IP)
@@ -162,6 +178,52 @@ int replay_pcap(char *fpath)
     }
     pcap_close(handle);
     
+    return 0;
+}
+
+int result_compare(tfc_t *estimation, char *sharped_pcap, int count)
+{
+    pcap_t *handle;
+    char errbuf[PCAP_ERRBUF_SIZE];
+    struct pcap_pkthdr header;
+    const u_char *packet;
+
+    struct lnode *ln;
+    tfc_t *tp;
+
+    unsigned long long est_prev;
+    unsigned long long sharped_prev;
+    long est_diff;
+    long sharped_diff;
+
+    int idx = 0;
+
+    handle = pcap_open_offline(sharped_pcap, errbuf);
+    if (handle == NULL) {
+        fprintf(stderr, "Couldn't open pcap file %s: %s\n", sharped_pcap, errbuf);
+        return -1;
+    }
+
+
+    dclist_foreach(ln, &estimation->list) {
+        if (--count < 0) break;
+        if ((packet = pcap_next(handle, &header)) == NULL) break;
+        
+        tp = dclist_outer(ln, tfc_t, list);
+        if (idx++ == 0) {
+            est_prev = tp->time;
+            sharped_prev = header.ts.tv_sec * 1000 + header.ts.tv_usec / 1000;
+        }
+        
+        est_diff = tp->time - est_prev;
+        sharped_diff = (header.ts.tv_sec*1000 + header.ts.tv_usec/1000) 
+                                                            - sharped_prev;
+        printf("%8d - Estimated: %-10ld  actual: %-10ld   diff: %ld\n", 
+                            idx, est_diff, sharped_diff, est_diff - sharped_diff);
+        
+        est_prev = tp->time;
+        sharped_prev = header.ts.tv_sec * 1000 + header.ts.tv_usec / 1000;
+    }
     return 0;
 }
  

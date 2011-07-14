@@ -4,11 +4,11 @@
 #include "dclist.h"
 
 typedef struct traffic_data {
-    unsigned char *pkt;
+    unsigned long long time;        /* In millisecond */
     unsigned int size;              /* Size of the packet */
     int priority;                   /* Priority of the packet */
-    unsigned long long time;        /* In millisecond */
     struct lnode list;              /* Internel list structure */
+    unsigned char *pkt;
 } tfc_t;
 
 int schedule(tfc_t*); 
