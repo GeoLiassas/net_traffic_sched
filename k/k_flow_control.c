@@ -33,19 +33,8 @@ static tfc_t *fcp;
 #define PROC_DIR            "sch_80211"
 #define PROC_F_PREDICTION   "prediction"
 #define PROC_PERMS          0644
-#define BUF_SIZE            2048
 
-/**
- * The buffer (2k) for this module
- *
- */
-static char procfs_buffer[BUF_SIZE];
 
-/**
- * The size of the data hold in the buffer
- *
- */
-static unsigned long procfs_buffer_size = 0;
 
 static struct proc_dir_entry *proc_dir, *prediction_file;
 
@@ -67,6 +56,10 @@ write_prediction(struct file *file,
                  size_t len, 
                  loff_t *off)
 {
+    const int BUF_SIZE = 512;
+    char procfs_buffer[BUF_SIZE];
+    unsigned long procfs_buffer_size = 0;
+
     unsigned long long time;
     unsigned int size;
     int priority;
@@ -122,15 +115,11 @@ static ssize_t read_prediction(struct file *filp, /* see include/linux/fs.h   */
                                char *buffer,      /* buffer to fill with data */
                                size_t length,     /* length of the buffer     */
                                loff_t * offset)
-{        
+{   
+    /*
     static int finished = 0;
 
     printk(KERN_INFO "@read::buffer_length = %lu\n", length);
-    /* 
-     * We return 0 to indicate end of file, that we have
-     * no more information. Otherwise, processes will
-     * continue to read from us in an endless loop. 
-     */
     if (finished) {
             printk(KERN_INFO "procfs_read: END\n");
             finished = 0;
@@ -139,20 +128,15 @@ static ssize_t read_prediction(struct file *filp, /* see include/linux/fs.h   */
     
     finished = 1;
             
-    /* 
-     * We use put_to_user to copy the string from the kernel's
-     * memory segment to the memory segment of the process
-     * that called us. get_from_user, BTW, is
-     * used for the reverse. 
-     */
     if (copy_to_user(buffer, procfs_buffer, procfs_buffer_size)) {
             return -EFAULT;
     }
 
     printk(KERN_INFO "procfs_read: read %lu bytes\n", procfs_buffer_size);
 
-    return procfs_buffer_size;      /* Return the number of bytes "read" */
-
+    return procfs_buffer_size;
+    */
+    return 0;
  }
 
 static struct file_operations prediction_ops = {

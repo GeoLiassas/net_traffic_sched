@@ -18,11 +18,11 @@
     printf("%ld.%06ld\n", (tvptr)->tv_sec, (tvptr)->tv_usec)
 
 
-tfc_t *build_traffic_pcap(char *);
+tfc_t *build_traffic_pcap(char *, char *);
 
-int replay_pcap(char *);
+int replay_pcap(char *, char *);
 
-int result_compare(tfc_t *, char *, int count);
+int result_compare(tfc_t *, char *);
 
 static int rawfd;
 
@@ -55,7 +55,7 @@ send_pkt(int fd, void *data, int len,
     return n;
 }
 
-tfc_t *build_traffic_pcap(char *fpath)
+tfc_t *build_traffic_pcap(char *fpath, char *target_ip)
 {
     pcap_t *handle;
     char errbuf[PCAP_ERRBUF_SIZE];
@@ -77,7 +77,7 @@ tfc_t *build_traffic_pcap(char *fpath)
 
     memset(&msaddr, 0, sizeof(struct sockaddr_in));
     msaddr.sin_family = AF_INET;
-    inet_pton(AF_INET, MS_IP, &msaddr.sin_addr);
+    inet_pton(AF_INET, target_ip, &msaddr.sin_addr);
     
     handle = pcap_open_offline(fpath, errbuf);
     if (handle == NULL) {
@@ -109,7 +109,7 @@ tfc_t *build_traffic_pcap(char *fpath)
 }
 
 
-int replay_pcap(char *fpath)
+int replay_pcap(char *fpath, char *target_ip)
 {
     pcap_t *handle;
     char errbuf[PCAP_ERRBUF_SIZE];
@@ -131,11 +131,13 @@ int replay_pcap(char *fpath)
 
     memset(&sendto_addr, 0, sizeof(struct sockaddr_in));
     sendto_addr.sin_family = AF_INET;
-    inet_pton(AF_INET, MS_IP, &sendto_addr.sin_addr);
+    inet_pton(AF_INET, target_ip, &sendto_addr.sin_addr);
 
-    rawfd = socket(PF_INET, SOCK_RAW, IPPROTO_RAW);
-    handle = pcap_open_offline(fpath, errbuf);
-    if (handle == NULL) {
+    if ((rawfd = socket(PF_INET, SOCK_RAW, IPPROTO_RAW)) == -1) {
+        perror("repay_pcap: socket");
+        exit(1);
+    }
+    if ((handle = pcap_open_offline(fpath, errbuf)) == NULL) {
         fprintf(stderr, "Couldn't open pcap file %s: %s\n", fpath, errbuf);
         return -1;
     }
@@ -181,12 +183,16 @@ int replay_pcap(char *fpath)
     return 0;
 }
 
-int result_compare(tfc_t *estimation, char *sharped_pcap, int count)
+int result_compare(tfc_t *estimation, char *sharped_pcap)
 {
     pcap_t *handle;
     char errbuf[PCAP_ERRBUF_SIZE];
     struct pcap_pkthdr header;
     const u_char *packet;
+    u_char *p;
+    struct ether_header *eth_hdr;
+    struct ip *ip_hdr;
+
 
     struct lnode *ln;
     tfc_t *tp;
@@ -195,6 +201,7 @@ int result_compare(tfc_t *estimation, char *sharped_pcap, int count)
     unsigned long long sharped_prev;
     long est_diff;
     long sharped_diff;
+    char *flag;
 
     int idx = 0;
 
@@ -206,10 +213,21 @@ int result_compare(tfc_t *estimation, char *sharped_pcap, int count)
 
 
     dclist_foreach(ln, &estimation->list) {
-        if (--count < 0) break;
+        flag = "";
         if ((packet = pcap_next(handle, &header)) == NULL) break;
+        p = (u_char *) packet;
         
         tp = dclist_outer(ln, tfc_t, list);
+        
+        eth_hdr = (struct ether_header *) packet;
+        if((ntohs(eth_hdr->ether_type)) == ETHERTYPE_IP)
+        {
+            ip_hdr = (struct ip *)(p + sizeof(struct ether_header));
+            if (ntohs(ip_hdr->ip_len) == tp->size)
+                flag = "M";
+        }
+ 
+        
         if (idx++ == 0) {
             est_prev = tp->time;
             sharped_prev = header.ts.tv_sec * 1000 + header.ts.tv_usec / 1000;
@@ -218,8 +236,8 @@ int result_compare(tfc_t *estimation, char *sharped_pcap, int count)
         est_diff = tp->time - est_prev;
         sharped_diff = (header.ts.tv_sec*1000 + header.ts.tv_usec/1000) 
                                                             - sharped_prev;
-        printf("%8d - Estimated: %-10ld  actual: %-10ld   diff: %ld\n", 
-                            idx, est_diff, sharped_diff, est_diff - sharped_diff);
+        printf("%8d - Estimated: %-10ld  Actual: %-10ld   Diff: %5ld  Flag: %s\n", 
+                    idx, est_diff, sharped_diff, est_diff - sharped_diff, flag);
         
         est_prev = tp->time;
         sharped_prev = header.ts.tv_sec * 1000 + header.ts.tv_usec / 1000;

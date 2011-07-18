@@ -11,7 +11,7 @@ typedef struct traffic_data {
     unsigned char *pkt;
 } tfc_t;
 
-int schedule(tfc_t*); 
+int schedule(tfc_t*, long, long); 
 
 #define MS_IP "192.168.10.1"
 #endif
