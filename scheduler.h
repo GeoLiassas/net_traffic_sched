@@ -8,8 +8,12 @@ typedef struct traffic_data {
     unsigned int size;              /* Size of the packet */
     int priority;                   /* Priority of the packet */
     struct lnode list;              /* Internel list structure */
+    unsigned long id;               /* Identity of this packet */
     unsigned char *pkt;
 } tfc_t;
+
+#define tfc_id(tp) \
+    (tp)->pkt
 
 /**
  * Schedule fuction, accepting a list of trafic data, and re-arranging

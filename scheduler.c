@@ -10,6 +10,7 @@
 #define BW_PER_SEC      "1024000000"    /* byte per second */
 #define MAX_INTERVAL    "100"           /* in millisecond */
 
+
 extern tfc_t *build_traffic_pcap(char *, char *);
 extern int result_compare(tfc_t *, char *);
 
@@ -39,20 +40,28 @@ int schedule(tfc_t* head, long bw, long max_interval)
     return 0;
 }
 
-int sync_traffic_data(tfc_t *headt)
+
+
+#define PROC_FILE       "/proc/sch_80211/prediction"
+/**
+ * Transmit traffic data to the kernel space via proc
+ */
+static int sync_traffic_data(tfc_t *headt)
 {
     int proc_fd;
     char text_buf[1024];
     tfc_t *tp;
     struct lnode *ln;
 
-    if ((proc_fd = open("/proc/sch_80211/prediction", O_WRONLY, 0)) == -1) {
+    if ((proc_fd = open(PROC_FILE, O_WRONLY, 0)) == -1) {
         perror("sync_traffic_data: open");
         exit(1);
     }
     dclist_foreach(ln, &headt->list) {
         tp = dclist_outer(ln, tfc_t, list);
-        sprintf(text_buf, "%llu\t%u\t%d\t\n", tp->time, tp->size, tp->priority);
+        sprintf(text_buf, 
+                "%lu\t%llu\t%u\t%d\t\n", 
+                tp->id, tp->time, tp->size, tp->priority);
         if ((write(proc_fd, text_buf, strlen(text_buf))) == -1) {
             perror("sync_traffic_data: write");
             exit(1);

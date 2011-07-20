@@ -9,6 +9,7 @@
 
 #include "scheduler.h"
 
+
 /* This is a traffic source adapter for PCAP file.
  * The adapter will read PCAP file, and build up
  * traffic information required by scheduler.
@@ -51,8 +52,12 @@ send_pkt(int fd, void *data, int len,
         local_copy.tv_sec--;
         local_copy.tv_usec += 1000000;
     }
+
+#ifdef DEBUG
     printf("send_pkt: delaytime: ");
     ptime(&local_copy);
+#endif
+
     /* Using select call to achieve packet delay */
     if((n = select(0, NULL, NULL, NULL, &local_copy)) == -1)
         perror("send_pkt: select");
@@ -63,6 +68,13 @@ send_pkt(int fd, void *data, int len,
     return n;
 }
 
+/**
+ * Build traffic_data list from pcap file, and it only selects
+ * IP packets with specified destination IP address.
+ *
+ * @fpath The file path of the pcap file.
+ * @target_ip The destination IP address.
+ */
 tfc_t *build_traffic_pcap(char *fpath, char *target_ip)
 {
     pcap_t *handle;
@@ -73,7 +85,6 @@ tfc_t *build_traffic_pcap(char *fpath, char *target_ip)
     struct ether_header *eth_hdr;
     struct ip *ip_hdr;
     
-    unsigned int pkt_counter = 0;
     struct sockaddr_in msaddr;
     tfc_t *headt, *tp;
 
@@ -99,7 +110,6 @@ tfc_t *build_traffic_pcap(char *fpath, char *target_ip)
         if(ntohs(eth_hdr->ether_type) == ETHERTYPE_IP) {
             ip_hdr = (struct ip *)(p + sizeof(struct ether_header));
             if (msaddr.sin_addr.s_addr == ip_hdr->ip_dst.s_addr) {
-                pkt_counter++;
                 tp = (tfc_t *) malloc(sizeof(tfc_t));
                 if (tp == NULL) {
                     perror("build_traffic_pcap: malloc");
@@ -108,6 +118,8 @@ tfc_t *build_traffic_pcap(char *fpath, char *target_ip)
                 tp->time = header.ts.tv_sec*1000 + header.ts.tv_usec/1000;
                 tp->pkt = NULL;
                 tp->priority = 1;
+                /* !!Use IP header checksum as packet identifier. */
+                tp->id = ip_hdr->ip_sum;
                 dclist_add(&tp->list, &headt->list);
             }
         }
@@ -152,8 +164,6 @@ int replay_pcap(char *fpath, char *target_ip)
 
     while ((packet = pcap_next(handle, &header)) != NULL) {
         p = (u_char *) packet;
-        printf("%d|", count++);
-        ptime(&header.ts);
         eth_hdr = (struct ether_header *) p;
         if((eth_proto = ntohs(eth_hdr->ether_type)) == ETHERTYPE_IP)
         {
@@ -182,7 +192,13 @@ int replay_pcap(char *fpath, char *target_ip)
                 memcpy(&prev_time, &header.ts, sizeof(struct timeval));
                 n = send_pkt(rawfd, ip_hdr, ntohs(ip_hdr->ip_len), 
                                 &sendto_addr, &time_diff);
-                printf("Sent: %d\n", n);
+
+                p = (u_char *)&(ip_hdr->ip_src.s_addr);
+                printf("%6d|%3u.%3u.%3u.%3u > %3u.%3u.%3u.%3u [%04X], %5d bytes\n",
+                        count++,
+                        p[0], p[1], p[2], p[3],
+                        p[4], p[5], p[6], p[7],
+                        ip_hdr->ip_sum, n);
             }
         }
     }
@@ -231,7 +247,7 @@ int result_compare(tfc_t *estimation, char *sharped_pcap)
         if((ntohs(eth_hdr->ether_type)) == ETHERTYPE_IP)
         {
             ip_hdr = (struct ip *)(p + sizeof(struct ether_header));
-            if (ntohs(ip_hdr->ip_len) == tp->size)
+            if (ip_hdr->ip_sum == tp->id)
                 flag = "M";
         }
  

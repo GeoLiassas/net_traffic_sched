@@ -23,13 +23,32 @@ module_param(target, charp, S_IRUGO);
 MODULE_PARM_DESC(target, 
                   "The IP of Mobile station for traffic sharping");
 
+/**
+ *Record the head of the traffic data.
+ */
 static tfc_t headt = {
     .list = {&headt.list, &headt.list},
 };
 
+/**
+ * Flow control flag.
+ */
 static int flow_control = 0;
-static tfc_t *fcp;
 
+/**
+ * Flow control pointer, which points to current traffic data.
+ */
+static tfc_t *fcp = &headt;
+
+/**
+ * Queue lookup pointer 
+ */
+static tfc_t *qlp = &headt;
+
+
+/**
+ * Utility function, convert string format of IP to 32 bit unsigned.
+ */
 static u32 k_v4pton(char *ipv4)
 {
     u32 ip;
@@ -89,7 +108,7 @@ static int procfs_close(struct inode *inode, struct file *file)
  * This function also allow user to tell the kernel that all traffic data have
  * been sent and flow control can start to go. This functionality is implemented
  * by write different command code (an integer number) to this file.
- * Refer to the macro starts with "CMD_".
+ * Refer to macros start with "CMD_".
  */
 static ssize_t
 write_prediction(struct file *file, 
@@ -101,6 +120,7 @@ write_prediction(struct file *file,
     char procfs_buffer[BUF_SIZE];
     unsigned long procfs_buffer_size = 0;
 
+    unsigned long id;
     unsigned long long time;
     unsigned int size;
     int priority;
@@ -109,7 +129,6 @@ write_prediction(struct file *file,
     tfc_t *tp;
     struct lnode *ln;
 
-    printk(KERN_INFO "@write::buffer_length = %lu, offset=%lld\n", len, *off);
     if (len > BUF_SIZE) {
         procfs_buffer_size = BUF_SIZE;
     }
@@ -120,10 +139,10 @@ write_prediction(struct file *file,
     if (copy_from_user(procfs_buffer, buffer, procfs_buffer_size)) {
         return -EFAULT;
     }
-    n = sscanf(procfs_buffer, "%llu %u %d", &time, &size, &priority);
-    if (n == 3){
-        printk(KERN_INFO "%llu\t%u\t%d\n", time, size, priority);
+    n = sscanf(procfs_buffer, "%lu %llu %u %d", &id, &time, &size, &priority);
+    if (n == 4){
         tp = (tfc_t *) kmalloc(sizeof(tfc_t), GFP_KERNEL);
+        tp->id = id;
         tp->time = time;
         tp->size = size;
         tp->priority = priority;
@@ -138,8 +157,11 @@ write_prediction(struct file *file,
                     count = 0;
                     dclist_foreach(ln, &headt.list) {
                         tp = dclist_outer(ln, tfc_t, list);
-                        printk(KERN_INFO "|%llu  %u  %d\n", 
-                                            tp->time, tp->size, tp->priority);
+#ifdef DEBUG
+                        printk(KERN_INFO "|%lu  %llu  %u  %d\n", 
+                                         tp->id, tp->time, 
+                                         tp->size, tp->priority);
+#endif
                         count++;
                     }
                     printk(KERN_INFO "%d receiverd, flow_control open\n", count);
@@ -195,6 +217,12 @@ static struct file_operations prediction_ops = {
  * NF_HOOK
  =============================================================================*/
 
+/**
+ * NF_HOOK call back function
+ * In this function, we queue all packets with destination to the target ip.
+ * For other packets, we just accept them, without any changes.
+ * The target ip a configable module paramter.
+ */
 static unsigned int
 traffic_sharp(unsigned int hook,
     struct sk_buff *skb,
@@ -203,23 +231,50 @@ traffic_sharp(unsigned int hook,
     int (*okfn)(struct sk_buff *skb))
 {
     struct iphdr *iph = ip_hdr(skb);
+    tfc_t *tp = NULL;
+    struct lnode *ln;
 
-    if (ntohl(iph->daddr) == target_ip && flow_control) {
+    //printk(KERN_INFO "::FC_D::%pI4 > %pI4\n", &iph->saddr, &iph->daddr);
+    //printk(KERN_INFO "::FC_D::%08X | %08X | %d\n", 
+    //                    ntohl(iph->daddr), target_ip, flow_control);
+
+    if (iph->daddr == target_ip && flow_control) {
         printk(KERN_INFO "::FC::%pI4 > %pI4\n", &iph->saddr, &iph->daddr);
-        fcp = dclist_outer(fcp->list.next, tfc_t, list);
-        if (fcp == &headt) {
+
+        dclist_foreach(ln, &fcp->list) {
+            tp = dclist_outer(ln, tfc_t, list);
+            if (tp->id == iph->check) 
+                break;
+        }
+
+        if (tp == &headt) {
+            //If we run to here, it should be a bug.
+            //NOT queue this packet
+            printk(KERN_ERR "traffic_sharp, cannot match traffic data id\n");
+            return NF_DROP;
+        }
+
+        fcp = tp;
+
+        /* stop flow control if we finish the iteration */
+        tp = dclist_outer(fcp->list.next, tfc_t, list);
+        if (tp == &headt) {
             flow_control = 0;
             printk(KERN_INFO "::::::flow_control closed\n"); 
-            return NF_ACCEPT;
         }
-        printk(KERN_INFO "::::::QUEUE:%llu  %u  %d\n", 
-                            fcp->time, fcp->size, fcp->priority);
+
+        /* Queue the matched packet */
+        printk(KERN_INFO "::::::QUEUE:%lu  %llu  %u  %d\n", 
+                            fcp->id, fcp->time, fcp->size, fcp->priority);
         return NF_QUEUE;
     } else {
         return NF_ACCEPT;
     }
 }
 
+/**
+ * NF_HOOK registration information
+ */
 static struct nf_hook_ops pkt_ops = {
     .hook = traffic_sharp,
     .pf = NFPROTO_IPV4,
@@ -230,28 +285,44 @@ static struct nf_hook_ops pkt_ops = {
 /**
  * NF_QUEUE
  ============================================================================*/
+#define MAX_BURST_GAP 5
+
+static unsigned int entry_id = 1;
 
 /* head of the list of the nf_queue */
 static struct nf_queue_entry head_entry = { 
     .list = LIST_HEAD_INIT(head_entry.list)
 };
 
-static unsigned int entry_id = 1;
-
+/* Queue call back function */
 static int
 queue_callback(struct nf_queue_entry *entry, 
                 unsigned int queuenum) 
 {
+    struct iphdr *iph = ip_hdr(entry->skb);
     struct nf_queue_entry *q, *qnext;
-    int reinject_pkts = 0;
-    tfc_t *tfc_next;
+    int reinject_pkts = 0; /* flag */
+    tfc_t *tfc_curr, *tfc_next;
 
     entry->id = entry_id++;
     printk(KERN_INFO "::::::ID in queue: %d\n", entry->id);
     list_add_tail(&entry->list, &head_entry.list);
+    
+    for (;;) {
+        tfc_curr = dclist_outer(qlp->list.next, tfc_t, list);
+        if (tfc_curr == &headt || tfc_curr->id == iph->check)
+            break;
+    }
 
-    tfc_next = dclist_outer(fcp->list.next, tfc_t, list);
-    if (tfc_next != &headt && (tfc_next->time - fcp->time) > 5)
+    if (tfc_curr == &headt) {
+        //TODO it will be a bug if we run to here...
+        printk(KERN_ERR "queue_callback, qlp_curr reaches head!!\n");
+        return 1;
+    }
+    qlp = tfc_curr;
+    tfc_next = dclist_outer(tfc_curr->list.next, tfc_t, list);
+    if (tfc_next != &headt 
+            && (tfc_next->time - tfc_curr->time) > MAX_BURST_GAP)
         reinject_pkts = 1;
 
     if (tfc_next == &headt)
