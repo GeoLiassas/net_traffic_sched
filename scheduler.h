@@ -11,6 +11,10 @@ typedef struct traffic_data {
     unsigned char *pkt;
 } tfc_t;
 
+/**
+ * Schedule fuction, accepting a list of trafic data, and re-arranging
+ * the sending time for each of them in order to achieve bursting.
+ */
 int schedule(tfc_t*, long, long); 
 
 #define MS_IP "192.168.10.1"

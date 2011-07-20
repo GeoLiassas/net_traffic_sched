@@ -105,38 +105,6 @@ int parse_number(char *s, long *value)
 
 int main(int argc, char *argv[])
 {
-    /*  DEBUG DCLIST
-    struct lnode head = {&head, &head};
-    struct lnode *lp, *lc;
-    head.id = 0;
-    
-    lp = (struct lnode *) malloc(sizeof(struct lnode));
-    lp->id = 1;
-    dclist_r_add(lp, &head);
-
-    lp = (struct lnode *) malloc(sizeof(struct lnode));
-    lp->id = 2;
-    dclist_r_add(lp, &head);
-
-    lp = (struct lnode *) malloc(sizeof(struct lnode));
-    lp->id = 3;
-    dclist_r_add(lp, &head);
-
-    dclist_foreach(lc, &head) {
-        printf("%d\n", lc->id);
-    }
-
-    printf("=======\n");
-    dclist_rforeach(lc, &head) {
-        printf("%d\n", lc->id);
-    }
-
-    printf("####%lu\n", offsetof(tfc_t, pkt));
-    printf("####%lu\n", offsetof(tfc_t, size));
-    printf("####%lu\n", offsetof(tfc_t, priority));
-    printf("####%lu\n", offsetof(tfc_t, time));
-    printf("####%lu\n", offsetof(tfc_t, list));
-    */
     const char *optstring = "s:c:b:i:t:g";
     int mode = '\0';
     int opt;

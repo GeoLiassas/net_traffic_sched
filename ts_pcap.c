@@ -24,9 +24,17 @@ int replay_pcap(char *, char *);
 
 int result_compare(tfc_t *, char *);
 
+/**
+ * The file descriptor of raw socket, which is internally used for
+ * replay the pcap file.
+ */
 static int rawfd;
 
-
+/**
+ * Sending a packet via raw socket with delays. This is a wrap
+ * function of sendto in socket API, and provides possibility of
+ * delay a packet for a specific period before send it out.
+ */
 static unsigned int 
 send_pkt(int fd, void *data, int len, 
             struct sockaddr_in *dst, struct timeval *delay)
@@ -48,7 +56,7 @@ send_pkt(int fd, void *data, int len,
     /* Using select call to achieve packet delay */
     if((n = select(0, NULL, NULL, NULL, &local_copy)) == -1)
         perror("send_pkt: select");
-    
+    /* Send packet */
     if((n = sendto(fd, data, len, 0, (void *) dst, 
                         sizeof(struct sockaddr))) == -1)
         perror("send_pkt: sendto");

@@ -17,9 +17,12 @@
  */
 
 /* module parameters */
-static u32 subnet   = 0xC0A80A00; //192.168.10.0 TODO hardcoded
-static u32 netmask  = 0xFFFFFF00; //255.255.255.0 TODO hardcoded
-static u32 TARGET_IP = 0xC0A80A01; //192.168.10.1 TODO hardcoded
+static u32 target_ip = 0;
+static char *target = "192.168.10.101";
+module_param(target, charp, S_IRUGO);
+MODULE_PARM_DESC(target, 
+                  "The IP of Mobile station for traffic sharping");
+
 static tfc_t headt = {
     .list = {&headt.list, &headt.list},
 };
@@ -27,29 +30,67 @@ static tfc_t headt = {
 static int flow_control = 0;
 static tfc_t *fcp;
 
+static u32 k_v4pton(char *ipv4)
+{
+    u32 ip;
+    unsigned char *p = (unsigned char *) &ip;
+    if((sscanf(ipv4, "%hhu.%hhu.%hhu.%hhu", p, p+1, p+2, p+3)) != 4)
+        return 0;
+    return ip;
+}
+
+/**
+ * Proc command code
+ * This command tells the kernel to stop accepting traffic data and
+ * start the actual packet delaying.
+ */
 #define CMD_FLOW_CONTROL 723
 
-/* Proc related */
+
+/* Proc related
+   ========================================================================= */
 #define PROC_DIR            "sch_80211"
 #define PROC_F_PREDICTION   "prediction"
 #define PROC_PERMS          0644
 
 
-
+/**
+ * Proc folder and file under this folder
+ */
 static struct proc_dir_entry *proc_dir, *prediction_file;
 
+/**
+ * The Proc file operation: open
+ * Simply increase the reference count
+ */
 static int procfs_open(struct inode *inode, struct file* file)
 {
     try_module_get(THIS_MODULE);
     return 0;
 }
 
+/**
+ * The Proc file operation: close
+ * Decrease the reference count
+ */
 static int procfs_close(struct inode *inode, struct file *file)
 {
     module_put(THIS_MODULE);
     return 0;
 }
 
+/**
+ * The Proc file operation: write
+ * This write function enables user to input traffic data from the user space
+ * to the kernel. The traffic data format is "%llu %u %d", which stands for 
+ * packet sending time, packet size (in bytes) and packet priority respectively.
+ * Multiple packets should be handled one by one.
+ *
+ * This function also allow user to tell the kernel that all traffic data have
+ * been sent and flow control can start to go. This functionality is implemented
+ * by write different command code (an integer number) to this file.
+ * Refer to the macro starts with "CMD_".
+ */
 static ssize_t
 write_prediction(struct file *file, 
                  const char *buffer, 
@@ -110,10 +151,13 @@ write_prediction(struct file *file,
     return procfs_buffer_size;
 }
 
-//FIXME what should be provided through this reading function?
-static ssize_t read_prediction(struct file *filp, /* see include/linux/fs.h   */
-                               char *buffer,      /* buffer to fill with data */
-                               size_t length,     /* length of the buffer     */
+/**
+ * The Proc file operation: read
+ * Currently this function is not needed.
+ */
+static ssize_t read_prediction(struct file *filp, 
+                               char *buffer,
+                               size_t length,     
                                loff_t * offset)
 {   
     /*
@@ -139,6 +183,7 @@ static ssize_t read_prediction(struct file *filp, /* see include/linux/fs.h   */
     return 0;
  }
 
+/* Proc file operations */
 static struct file_operations prediction_ops = {
     .read     = read_prediction,
     .write    = write_prediction,
@@ -146,12 +191,9 @@ static struct file_operations prediction_ops = {
     .release  = procfs_close,
 };
 
-/* head of the list of the nf_queue */
-static struct nf_queue_entry head_entry = { 
-    .list = LIST_HEAD_INIT(head_entry.list)
-};
-
-static unsigned int entry_id = 1;
+/**
+ * NF_HOOK
+ =============================================================================*/
 
 static unsigned int
 traffic_sharp(unsigned int hook,
@@ -162,7 +204,7 @@ traffic_sharp(unsigned int hook,
 {
     struct iphdr *iph = ip_hdr(skb);
 
-    if (ntohl(iph->daddr) == TARGET_IP && flow_control) {
+    if (ntohl(iph->daddr) == target_ip && flow_control) {
         printk(KERN_INFO "::FC::%pI4 > %pI4\n", &iph->saddr, &iph->daddr);
         fcp = dclist_outer(fcp->list.next, tfc_t, list);
         if (fcp == &headt) {
@@ -177,6 +219,24 @@ traffic_sharp(unsigned int hook,
         return NF_ACCEPT;
     }
 }
+
+static struct nf_hook_ops pkt_ops = {
+    .hook = traffic_sharp,
+    .pf = NFPROTO_IPV4,
+    .hooknum = NF_INET_POST_ROUTING,
+    .priority = -1
+};
+
+/**
+ * NF_QUEUE
+ ============================================================================*/
+
+/* head of the list of the nf_queue */
+static struct nf_queue_entry head_entry = { 
+    .list = LIST_HEAD_INIT(head_entry.list)
+};
+
+static unsigned int entry_id = 1;
 
 static int
 queue_callback(struct nf_queue_entry *entry, 
@@ -208,20 +268,26 @@ queue_callback(struct nf_queue_entry *entry,
     return 1;
 }
 
-static struct nf_hook_ops pkt_ops = {
-    .hook = traffic_sharp,
-    .pf = NFPROTO_IPV4,
-    .hooknum = NF_INET_POST_ROUTING,
-    .priority = -1
-};
 
 static struct nf_queue_handler queuehandler = {
     .name = "TrafficSchedulerQueue",
     .outfn = &queue_callback
 };
 
+/**
+ * KERNEL MODULE related
+ ============================================================================*/
+
+/**
+ * module init
+ */
 static int __init pkts_init(void) {
     int ret;
+
+    if((target_ip = k_v4pton(target)) == 0)
+        return -1;
+
+    printk(KERN_INFO "%s > 0x%08X\n", target, target_ip);
 
     printk(KERN_INFO "pkt_scheduler starts\n");
     /* Register NF hook */
@@ -256,6 +322,9 @@ static int __init pkts_init(void) {
     return 0;
 }
 
+/**
+ * module exit
+ */
 static void __exit pkts_exit(void) {
     tfc_t *tp;
     struct lnode *ln, *ltemp;
