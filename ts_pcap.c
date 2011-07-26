@@ -218,15 +218,17 @@ int result_compare(tfc_t *estimation, char *sharped_pcap)
     struct ip *ip_hdr;
 
 
-    struct lnode *ln;
+    struct lnode *ln, *lt, *lx;
     tfc_t *tp;
 
-    unsigned long long est_prev;
-    unsigned long long sharped_prev;
+    unsigned long long est_prev = -1;
+    unsigned long long sharped_prev = -1;
     long est_diff;
     long sharped_diff;
-    char *flag;
+    char flag;
 
+    int i;
+    int max_search = 50;
     int idx = 0;
 
     handle = pcap_open_offline(sharped_pcap, errbuf);
@@ -235,36 +237,63 @@ int result_compare(tfc_t *estimation, char *sharped_pcap)
         return -1;
     }
 
-
-    dclist_foreach(ln, &estimation->list) {
-        flag = "";
-        if ((packet = pcap_next(handle, &header)) == NULL) break;
-        p = (u_char *) packet;
-        
-        tp = dclist_outer(ln, tfc_t, list);
-        
+    ln = estimation->list.next;
+    while ((packet = pcap_next(handle, &header)) != NULL) {
+        flag = ' ';
+        p = (u_char *)packet;
         eth_hdr = (struct ether_header *) packet;
-        if((ntohs(eth_hdr->ether_type)) == ETHERTYPE_IP)
-        {
-            ip_hdr = (struct ip *)(p + sizeof(struct ether_header));
-            if (ip_hdr->ip_sum == tp->id)
-                flag = "M";
+
+        if ((ntohs(eth_hdr->ether_type)) == ETHERTYPE_IP) {
+            ip_hdr = (struct ip *) (p + sizeof(struct ether_header));
+        } else {
+            printf("************!!!Not a IP packet, IGNORE*********\n");
+            continue;
         }
+
+        for (lt = ln, i = 0;lt != &estimation->list && i < max_search; lt = lt->next, i++) {
+            tp = dclist_outer(lt, tfc_t, list);
+            if (ip_hdr->ip_sum == tp->id) {
+                flag = 'M';
+                break;
+            }
+        }
+
+        if (flag == 'M') {
+            for (lx = ln; lx != lt; lx = lx->next) {
+                tp = dclist_outer(lx, tfc_t, list);
+                if (est_prev == -1) est_prev = tp->time;
+                est_diff = tp->time - est_prev;
+                printf("%05d-%04X - Estimated: %-10ld  Actual: %-10s   Diff: %5s  Flag: %c\n", 
+                        idx++,
+                        (unsigned int)tp->id, est_diff, "---", "---", 'X');
+                est_prev = tp->time;
+            }
+
+            //Print matched line
+            tp = dclist_outer(lt, tfc_t, list);
+            if (est_prev == -1) est_prev = tp->time;
+            est_diff = tp->time - est_prev;
+            if (sharped_prev == -1) sharped_prev 
+                    = header.ts.tv_sec * 1000 + header.ts.tv_usec / 1000; 
+            sharped_diff 
+                    = (header.ts.tv_sec*1000 + header.ts.tv_usec/1000) - sharped_prev;
  
-        
-        if (idx++ == 0) {
+            printf("%05d-%04X - Estimated: %-10ld  Actual: %-10ld   Diff: %5ld  Flag: %c\n",
+                        idx++,
+                        (unsigned int)tp->id, 
+                        est_diff, 
+                        sharped_diff, 
+                        est_diff - sharped_diff, 
+                        flag);
+
             est_prev = tp->time;
-            sharped_prev = header.ts.tv_sec * 1000 + header.ts.tv_usec / 1000;
+            sharped_prev = header.ts.tv_sec * 1000 + header.ts.tv_usec / 1000;  
+            ln = lt->next;
+        } else {
+            //this pcap pkt not in the estimation list, and should be ignored.
+            printf("!!!ID not in the estimation list, IGNORE****: %04X\n", ip_hdr->ip_sum);
+            continue;
         }
-        
-        est_diff = tp->time - est_prev;
-        sharped_diff = (header.ts.tv_sec*1000 + header.ts.tv_usec/1000) 
-                                                            - sharped_prev;
-        printf("%8d - Estimated: %-10ld  Actual: %-10ld   Diff: %5ld  Flag: %s\n", 
-                    idx, est_diff, sharped_diff, est_diff - sharped_diff, flag);
-        
-        est_prev = tp->time;
-        sharped_prev = header.ts.tv_sec * 1000 + header.ts.tv_usec / 1000;
     }
     return 0;
 }
