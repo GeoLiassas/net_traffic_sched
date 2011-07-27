@@ -119,7 +119,7 @@ tfc_t *build_traffic_pcap(char *fpath, char *target_ip)
                 tp->pkt = NULL;
                 tp->priority = 1;
                 /* !!Use IP header checksum as packet identifier. */
-                tp->id = ip_hdr->ip_sum;
+                tp->id = get_pkt_id(ip_hdr);
                 dclist_add(&tp->list, &headt->list);
             }
         }
@@ -194,11 +194,11 @@ int replay_pcap(char *fpath, char *target_ip)
                                 &sendto_addr, &time_diff);
 
                 p = (u_char *)&(ip_hdr->ip_src.s_addr);
-                printf("%6d|%3u.%3u.%3u.%3u > %3u.%3u.%3u.%3u [%04X], %5d bytes\n",
+                printf("%6d|%3u.%3u.%3u.%3u > %3u.%3u.%3u.%3u [%08X], %5d bytes\n",
                         count++,
                         p[0], p[1], p[2], p[3],
                         p[4], p[5], p[6], p[7],
-                        ip_hdr->ip_sum, n);
+                        (unsigned int)get_pkt_id(ip_hdr), n);
             }
         }
     }
@@ -252,7 +252,7 @@ int result_compare(tfc_t *estimation, char *sharped_pcap)
 
         for (lt = ln, i = 0;lt != &estimation->list && i < max_search; lt = lt->next, i++) {
             tp = dclist_outer(lt, tfc_t, list);
-            if (ip_hdr->ip_sum == tp->id) {
+            if (get_pkt_id(ip_hdr) == tp->id) {
                 flag = 'M';
                 break;
             }
@@ -291,7 +291,7 @@ int result_compare(tfc_t *estimation, char *sharped_pcap)
             ln = lt->next;
         } else {
             //this pcap pkt not in the estimation list, and should be ignored.
-            printf("!!!ID not in the estimation list, IGNORE****: %04X\n", ip_hdr->ip_sum);
+            printf("!!!ID not in the estimation list, IGNORE****: %04X\n", get_pkt_id(ip_hdr));
             continue;
         }
     }

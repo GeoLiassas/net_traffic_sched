@@ -158,8 +158,8 @@ write_prediction(struct file *file,
                     dclist_foreach(ln, &headt.list) {
                         tp = dclist_outer(ln, tfc_t, list);
 #ifdef DEBUG
-                        printk(KERN_INFO "|%lu  %llu  %u  %d\n", 
-                                         tp->id, tp->time, 
+                        printk(KERN_INFO "|%08X  %llu  %u  %d\n", 
+                                         (unsigned int)tp->id, tp->time, 
                                          tp->size, tp->priority);
 #endif
                         count++;
@@ -234,16 +234,14 @@ traffic_sharp(unsigned int hook,
     tfc_t *tp = NULL;
     struct lnode *ln;
 
-    //printk(KERN_INFO "::FC_D::%pI4 > %pI4\n", &iph->saddr, &iph->daddr);
-    //printk(KERN_INFO "::FC_D::%08X | %08X | %d\n", 
-    //                    ntohl(iph->daddr), target_ip, flow_control);
+    printk(KERN_INFO "nf_hook: pkt_id = %08X\n", get_pkt_id(iph));
 
     if (iph->daddr == target_ip && flow_control) {
         printk(KERN_INFO "::FC::%pI4 > %pI4\n", &iph->saddr, &iph->daddr);
 
         dclist_foreach(ln, &fcp->list) {
             tp = dclist_outer(ln, tfc_t, list);
-            if (tp->id == iph->check) 
+            if (tp->id == get_pkt_id(iph)) 
                 break;
         }
 
@@ -295,6 +293,7 @@ static struct nf_queue_entry head_entry = {
 };
 
 /* Queue call back function */
+static int pkt_num_in_q = 0;
 static int
 queue_callback(struct nf_queue_entry *entry, 
                 unsigned int queuenum) 
@@ -310,13 +309,13 @@ queue_callback(struct nf_queue_entry *entry,
     
     for (;;) {
         tfc_curr = dclist_outer(qlp->list.next, tfc_t, list);
-        if (tfc_curr == &headt || tfc_curr->id == iph->check)
+        if (tfc_curr == &headt || tfc_curr->id == get_pkt_id(iph))
             break;
     }
 
     if (tfc_curr == &headt) {
         //TODO it will be a bug if we run to here...
-        printk(KERN_ERR "queue_callback, qlp_curr reaches head!!\n");
+        printk(KERN_INFO "queue_callback, qlp_curr reaches head!!\n");
         return 1;
     }
     qlp = tfc_curr;
@@ -327,6 +326,11 @@ queue_callback(struct nf_queue_entry *entry,
 
     if (tfc_next == &headt)
         reinject_pkts = 1;
+
+    if (pkt_num_in_q++ > 10) {
+        reinject_pkts = 1;
+        pkt_num_in_q = 0;
+    }
 
     if (reinject_pkts) {
         list_for_each_entry_safe(q, qnext, &head_entry.list, list) {

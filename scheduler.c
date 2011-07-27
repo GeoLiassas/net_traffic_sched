@@ -188,6 +188,10 @@ int main(int argc, char *argv[])
     }
 
     headt = build_traffic_pcap(arg_source, arg_target_ip);
+    if (headt == NULL) {
+        fprintf(stderr, "build_traffic_pcap failed\n");
+        exit(1);
+    }
     schedule(headt, bandwidth, max_interval);
 
     if (mode == 'g')

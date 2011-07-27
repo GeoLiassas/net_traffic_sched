@@ -1,7 +1,8 @@
 #ifndef SCHEDULER_H
 #define SCHEDULER_H
-
 #include "dclist.h"
+
+//#define DEBUG
 
 typedef struct traffic_data {
     unsigned long long time;        /* In millisecond */
@@ -19,7 +20,66 @@ typedef struct traffic_data {
  * Schedule fuction, accepting a list of trafic data, and re-arranging
  * the sending time for each of them in order to achieve bursting.
  */
-int schedule(tfc_t*, long, long); 
+int sch_schedule(tfc_t*, long, long); 
+
+#ifndef __KERNEL__
+#include <netinet/ip.h>
+#include <netinet/tcp.h>
+#include <netinet/udp.h>
+static inline unsigned long
+get_pkt_id(struct ip *ip_hdr) {
+    unsigned long id;
+    unsigned long temp;
+    struct tcphdr *tcph;
+    struct udphdr *udph;
+
+    id = ip_hdr->ip_sum;
+    switch(ip_hdr->ip_p) {
+        case 0x06: //tcp
+            tcph = (struct tcphdr*)(((char *) ip_hdr) + ip_hdr->ip_hl * 4);
+            temp = tcph->check;
+            id = (temp << 16) + id;
+            break;
+        case 0x11: //udp
+            udph = (struct udphdr*)(((char *) ip_hdr) + ip_hdr->ip_hl * 4);
+            temp = udph->check;
+            id = (temp << 16) + id;
+            break;
+    }
+    
+    return id;
+}
+#endif
+
+#ifdef __KERNEL__
+#include <linux/ip.h>
+#include <linux/tcp.h>
+#include <linux/udp.h>
+static inline unsigned long
+get_pkt_id(struct iphdr * ip_hdr) {
+    unsigned long id;
+    unsigned long temp;
+    struct tcphdr *tcph;
+    struct udphdr *udph;
+
+    id = ip_hdr->check;
+    switch(ip_hdr->protocol) {
+        case 0x06: //tcp
+            tcph = (struct tcphdr*)(((char *) ip_hdr) + ip_hdr->ihl * 4);
+            temp = tcph->check;
+            id = (temp << 16) + id;
+            break;
+        case 0x11: //udp
+            udph = (struct udphdr*)(((char *) ip_hdr) + ip_hdr->ihl * 4);
+            temp = udph->check;
+            id = (temp << 16) + id;
+            break;
+    }
+    
+    return id;
+
+}
+#endif
 
 #define MS_IP "192.168.10.1"
 #endif
