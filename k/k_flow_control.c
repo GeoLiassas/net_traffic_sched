@@ -234,8 +234,6 @@ traffic_sharp(unsigned int hook,
     tfc_t *tp = NULL;
     struct lnode *ln;
 
-    printk(KERN_INFO "nf_hook: pkt_id = %08X\n", get_pkt_id(iph));
-
     if (iph->daddr == target_ip && flow_control) {
         printk(KERN_INFO "::FC::%pI4 > %pI4\n", &iph->saddr, &iph->daddr);
 

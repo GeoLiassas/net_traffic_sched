@@ -15,10 +15,6 @@
  * traffic information required by scheduler.
  */
 
-#define ptime(tvptr) \
-    printf("%ld.%06ld\n", (tvptr)->tv_sec, (tvptr)->tv_usec)
-
-
 tfc_t *build_traffic_pcap(char *, char *);
 
 int replay_pcap(char *, char *);
@@ -207,94 +203,136 @@ int replay_pcap(char *fpath, char *target_ip)
     return 0;
 }
 
-int result_compare(tfc_t *estimation, char *sharped_pcap)
+struct pcap_pkt_info {
+    unsigned long id;
+    struct pcap_pkthdr header;
+    struct lnode list;
+};
+
+static int
+read_pcap_info(char *pcap_file, struct pcap_pkt_info *linkhead)
 {
     pcap_t *handle;
     char errbuf[PCAP_ERRBUF_SIZE];
-    struct pcap_pkthdr header;
     const u_char *packet;
     u_char *p;
     struct ether_header *eth_hdr;
     struct ip *ip_hdr;
+    struct pcap_pkt_info *pkt_info;
+    struct pcap_pkthdr header;
 
-
-    struct lnode *ln, *lt, *lx;
-    tfc_t *tp;
-
-    unsigned long long est_prev = -1;
-    unsigned long long sharped_prev = -1;
-    long est_diff;
-    long sharped_diff;
-    char flag;
-
-    int i;
-    int max_search = 50;
-    int idx = 0;
-
-    handle = pcap_open_offline(sharped_pcap, errbuf);
+    handle = pcap_open_offline(pcap_file, errbuf);
     if (handle == NULL) {
-        fprintf(stderr, "Couldn't open pcap file %s: %s\n", sharped_pcap, errbuf);
+        fprintf(stderr, "Couldn't open pcap file %s: %s\n", pcap_file, errbuf);
         return -1;
     }
 
-    ln = estimation->list.next;
     while ((packet = pcap_next(handle, &header)) != NULL) {
-        flag = ' ';
         p = (u_char *)packet;
         eth_hdr = (struct ether_header *) packet;
 
         if ((ntohs(eth_hdr->ether_type)) == ETHERTYPE_IP) {
             ip_hdr = (struct ip *) (p + sizeof(struct ether_header));
-        } else {
-            printf("************!!!Not a IP packet, IGNORE*********\n");
-            continue;
-        }
-
-        for (lt = ln, i = 0;lt != &estimation->list && i < max_search; lt = lt->next, i++) {
-            tp = dclist_outer(lt, tfc_t, list);
-            if (get_pkt_id(ip_hdr) == tp->id) {
-                flag = 'M';
-                break;
+            pkt_info = (struct pcap_pkt_info *) 
+                        malloc(sizeof(struct pcap_pkt_info));
+            if (pkt_info == NULL) {
+                perror("read_pcap_info: malloc");
+                return -1;
             }
-        }
+            memset(pkt_info, 0, sizeof(struct pcap_pkt_info));
 
-        if (flag == 'M') {
-            for (lx = ln; lx != lt; lx = lx->next) {
-                tp = dclist_outer(lx, tfc_t, list);
-                if (est_prev == -1) est_prev = tp->time;
-                est_diff = tp->time - est_prev;
-                printf("%05d-%04X - Estimated: %-10ld  Actual: %-10s   Diff: %5s  Flag: %c\n", 
-                        idx++,
-                        (unsigned int)tp->id, est_diff, "---", "---", 'X');
-                est_prev = tp->time;
-            }
-
-            //Print matched line
-            tp = dclist_outer(lt, tfc_t, list);
-            if (est_prev == -1) est_prev = tp->time;
-            est_diff = tp->time - est_prev;
-            if (sharped_prev == -1) sharped_prev 
-                    = header.ts.tv_sec * 1000 + header.ts.tv_usec / 1000; 
-            sharped_diff 
-                    = (header.ts.tv_sec*1000 + header.ts.tv_usec/1000) - sharped_prev;
- 
-            printf("%05d-%04X - Estimated: %-10ld  Actual: %-10ld   Diff: %5ld  Flag: %c\n",
-                        idx++,
-                        (unsigned int)tp->id, 
-                        est_diff, 
-                        sharped_diff, 
-                        est_diff - sharped_diff, 
-                        flag);
-
-            est_prev = tp->time;
-            sharped_prev = header.ts.tv_sec * 1000 + header.ts.tv_usec / 1000;  
-            ln = lt->next;
+            pkt_info->id = get_pkt_id(ip_hdr);
+            memcpy(&pkt_info->header, &header, sizeof(struct pcap_pkthdr));
+            dclist_r_add(&pkt_info->list, &linkhead->list);
         } else {
-            //this pcap pkt not in the estimation list, and should be ignored.
-            printf("!!!ID not in the estimation list, IGNORE****: %04X\n", get_pkt_id(ip_hdr));
             continue;
         }
     }
+    pcap_close(handle);
+    return 0;
+
+}
+
+//TODO optimization. This is a helper function of result_compare().
+static int
+match_result_pkt(struct pcap_pkt_info *linkhead, unsigned long id, struct pcap_pkthdr *header)
+{
+    struct lnode *ln;
+    struct pcap_pkt_info *info;
+
+    dclist_foreach(ln, &linkhead->list) {
+        info = dclist_outer(ln, struct pcap_pkt_info, list);
+        if (info->id == id) {
+            memcpy(header, &info->header, sizeof(struct pcap_pkthdr));
+            return 1;
+        }
+    }
+    return 0;
+}
+
+
+int result_compare(tfc_t *estimation, char *sharped_pcap)
+{
+    struct lnode *ln;
+    tfc_t *tp;
+    struct pcap_pkthdr header;
+    struct pcap_pkt_info info_head = {
+        .list = {&info_head.list, &info_head.list},
+    };
+
+    unsigned long long est_prev = -1;
+    unsigned long long sharped_prev = -1;
+    long est_diff;
+    long sharped_diff;
+    int idx = 0;
+    int res;
+
+    if (read_pcap_info(sharped_pcap, &info_head) == -1) {
+        fprintf(stderr, "read_pcap_info failed\n");
+        return -1;
+    }
+
+    printf("11111");
+
+    dclist_foreach(ln, &estimation->list) {
+        tp = dclist_outer(ln, tfc_t, list);
+        if ((res = match_result_pkt(&info_head, tp->id, &header)) == -1) {
+            fprintf(stderr, "match_result_pkt failed\n");
+            return -1;
+        }
+
+        if (est_prev == -1)
+            est_prev = tp->time;
+        est_diff = tp->time - est_prev;
+
+        if (res != 0) {
+            if (sharped_prev == -1)
+                sharped_prev = tv2ms(&header.ts);
+            sharped_diff = tv2ms(&header.ts) - sharped_prev;
+
+            //print matched line
+            printf("%05d-%08X - Estimated: %-10ld  Actual: %-10ld  Diff: %5ld  Flag: M\n",
+                        idx,
+                        (unsigned int)tp->id, 
+                        est_diff, 
+                        sharped_diff, 
+                        est_diff - sharped_diff);
+
+            sharped_prev = tv2ms(&header.ts);
+        } else {
+            //print unmatched line
+            printf("%05d-%08X - Estimated: %-10ld  Actual: %-10s  Diff: %5s  Flag:   \n", 
+                    idx,
+                    (unsigned int)tp->id,
+                    est_diff,
+                    "---",
+                    "---");
+        }
+
+        est_prev = tp->time;
+        idx++;
+    }
+
     return 0;
 }
  

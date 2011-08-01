@@ -13,14 +13,19 @@ typedef struct traffic_data {
     unsigned char *pkt;
 } tfc_t;
 
-#define tfc_id(tp) \
-    (tp)->pkt
 
 /**
  * Schedule fuction, accepting a list of trafic data, and re-arranging
  * the sending time for each of them in order to achieve bursting.
  */
-int sch_schedule(tfc_t*, long, long); 
+int sch_schedule(tfc_t*, long, long);
+
+#define tv2ms(tv) \
+    ((tv)->tv_sec * 1000 + (tv)->tv_usec / 1000)
+
+#define ptime(tvptr) \
+    printf("%ld.%06ld\n", (tvptr)->tv_sec, (tvptr)->tv_usec)
+
 
 #ifndef __KERNEL__
 #include <netinet/ip.h>

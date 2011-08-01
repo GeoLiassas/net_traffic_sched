@@ -1,17 +1,15 @@
-CC = gcc
-CFLAGS = -g -Wall
+CFLAGS := -g -Wall $(CFLAGS)
+LDFLAGS := -lpcap $(LDFLAGS)
 
-all: scheduler replay_pcap
+targets = scheduler replay_pcap
+
+.PHONY: all
+all: $(targets)
 
 scheduler: scheduler.o ts_pcap.o
-	$(CC) $(CFLAGS) -lpcap $^ -o $@
-
 replay_pcap: replay_pcap.o ts_pcap.o
-	$(CC) $(CFLAGS) -lpcap $^ -o $@
 
-scheduler.o : scheduler.h
-ts_pcap.o : scheduler.h
-
+.PHONY: clean
 clean:
-	/bin/rm -f *.o *.gch
+	$(RM) $(targets) *.o
 
