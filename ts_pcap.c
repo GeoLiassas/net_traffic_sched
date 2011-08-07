@@ -292,8 +292,6 @@ int result_compare(tfc_t *estimation, char *sharped_pcap)
         return -1;
     }
 
-    printf("11111");
-
     dclist_foreach(ln, &estimation->list) {
         tp = dclist_outer(ln, tfc_t, list);
         if ((res = match_result_pkt(&info_head, tp->id, &header)) == -1) {
