@@ -41,6 +41,12 @@ static int flow_control = 0;
 static tfc_t *fcp = &headt;
 
 /**
+ * The time difference between original arrival time and current arrival
+ * time, since we replay a traffic file, the current arrival time should
+ * be largger than the original one.
+ */
+static unsigned long long time_shift = 0;
+/**
  * Queue lookup pointer 
  */
 static tfc_t *qlp = &headt;
@@ -49,13 +55,44 @@ static tfc_t *qlp = &headt;
 /**
  * Utility function, convert string format of IP to 32 bit unsigned.
  */
-static u32 k_v4pton(char *ipv4)
+static inline u32 
+k_v4pton(char *ipv4)
 {
     u32 ip;
     unsigned char *p = (unsigned char *) &ip;
     if((sscanf(ipv4, "%hhu.%hhu.%hhu.%hhu", p, p+1, p+2, p+3)) != 4)
         return 0;
     return ip;
+}
+
+/**
+ * Utility function, calculate time_shift from a given traffic data.
+ */
+static inline unsigned long long 
+cal_timeshift(tfc_t * tp)
+{
+    struct timeval now;
+    do_gettimeofday(&now);
+    
+    return tv2ms(&now) - tp->otime;
+}
+
+/**
+ * Utility function, shift a given time according to the given time delta.
+ */
+static inline unsigned long long
+shift_time(unsigned long long time, unsigned long long delta)
+{
+    return time + delta;
+}
+
+static int
+time_shift_passed(unsigned long long time, unsigned long long delta)
+{
+    struct timeval now;
+    do_gettimeofday(&now);
+    
+    return (shift_time(time, delta) <= tv2ms(&now));
 }
 
 /**
@@ -122,6 +159,7 @@ write_prediction(struct file *file,
 
     unsigned long id;
     unsigned long long time;
+    unsigned long long otime;
     unsigned int size;
     int priority;
     int cmd_code;
@@ -139,10 +177,11 @@ write_prediction(struct file *file,
     if (copy_from_user(procfs_buffer, buffer, procfs_buffer_size)) {
         return -EFAULT;
     }
-    n = sscanf(procfs_buffer, "%lu %llu %u %d", &id, &time, &size, &priority);
-    if (n == 4){
+    n = sscanf(procfs_buffer, "%lu %llu %llu %u %d", &id, &otime, &time, &size, &priority);
+    if (n == 5){
         tp = (tfc_t *) kmalloc(sizeof(tfc_t), GFP_KERNEL);
         tp->id = id;
+        tp->otime = otime;
         tp->time = time;
         tp->size = size;
         tp->priority = priority;
@@ -260,8 +299,11 @@ traffic_sharp(unsigned int hook,
         }
 
         /* Queue the matched packet */
-        printk(KERN_INFO "::::::QUEUE:%lu  %llu  %u  %d\n", 
-                            fcp->id, fcp->time, fcp->size, fcp->priority);
+        printk(KERN_INFO "::::::QUEUE:[%08X]  %llu  %u  %d\n", 
+                            (unsigned int)fcp->id, 
+                            fcp->time, 
+                            fcp->size, 
+                            fcp->priority);
         return NF_QUEUE;
     } else {
         return NF_ACCEPT;
@@ -283,7 +325,7 @@ static struct nf_hook_ops pkt_ops = {
  ============================================================================*/
 #define MAX_BURST_GAP 5
 
-static unsigned int entry_id = 1;
+static unsigned int entry_id = 0;
 
 /* head of the list of the nf_queue */
 static struct nf_queue_entry head_entry = { 
@@ -299,7 +341,7 @@ queue_callback(struct nf_queue_entry *entry,
     struct iphdr *iph = ip_hdr(entry->skb);
     struct nf_queue_entry *q, *qnext;
     int reinject_pkts = 0; /* flag */
-    tfc_t *tfc_curr, *tfc_next;
+    tfc_t *tfc_curr, *tfc_next, *tp;
 
     entry->id = entry_id++;
     printk(KERN_INFO "::::::ID in queue: %d\n", entry->id);
@@ -313,9 +355,16 @@ queue_callback(struct nf_queue_entry *entry,
 
     if (tfc_curr == &headt) {
         //TODO it will be a bug if we run to here...
-        printk(KERN_INFO "queue_callback, qlp_curr reaches head!!\n");
+        printk(KERN_INFO "queue_callback, cannot match packet id\n");
         return 1;
     }
+    //calculate time shift
+    if (time_shift == 0)
+        time_shift = cal_timeshift(tfc_curr);
+    else
+        time_shift = (time_shift * 7 + cal_timeshift(tfc_curr) * 3) / 10;
+
+    //determine if we should start to reinject packets.
     qlp = tfc_curr;
     tfc_next = dclist_outer(tfc_curr->list.next, tfc_t, list);
     if (tfc_next != &headt 
@@ -325,18 +374,39 @@ queue_callback(struct nf_queue_entry *entry,
     if (tfc_next == &headt)
         reinject_pkts = 1;
 
-    if (pkt_num_in_q++ > 10) {
+    if (++pkt_num_in_q >= 10) {
+        printk(KERN_INFO "Too many packets in the buffer queue, try to reinject.\n");
         reinject_pkts = 1;
-        pkt_num_in_q = 0;
     }
-
+    
+    //reinject packets
+    //here we make sure packets has been queue for enough time before put in back on line.
     if (reinject_pkts) {
         list_for_each_entry_safe(q, qnext, &head_entry.list, list) {
-            printk(KERN_INFO "::::::Reinject: %d\n", q->id);
-            nf_reinject(q, NF_ACCEPT);
+
+            //find corresponding traffic data for this queued packet.
+            for (tp=qlp; tp!=&headt; tp=dclist_outer(tp->list.prev, tfc_t, list)){
+                if (tp->id == get_pkt_id(iph) && time_shift_passed(tp->time, time_shift)){
+                    list_del(&q->list);
+                    printk(KERN_INFO "::::::Reinject: %d\n", q->id);
+                    nf_reinject(q, NF_ACCEPT);
+                    pkt_num_in_q--;
+                    break;
+                }
+            }
         }
-        INIT_LIST_HEAD(&head_entry.list);
         reinject_pkts = 0;
+    }
+
+    if (pkt_num_in_q >= 50) {
+        list_for_each_entry_safe(q, qnext, &head_entry.list, list) {
+            list_del(&q->list);
+            printk(KERN_INFO "::::::Reinject (queue too long): %d\n", q->id);
+            nf_reinject(q, NF_ACCEPT);
+            pkt_num_in_q--;
+            if (pkt_num_in_q <= 40)
+                break;
+        }
     }
     return 1;
 }

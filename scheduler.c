@@ -60,8 +60,8 @@ static int sync_traffic_data(tfc_t *headt)
     dclist_foreach(ln, &headt->list) {
         tp = dclist_outer(ln, tfc_t, list);
         sprintf(text_buf, 
-                "%lu\t%llu\t%u\t%d\t\n", 
-                tp->id, tp->time, tp->size, tp->priority);
+                "%lu\t%llu\t%llu\t%u\t%d\t\n", 
+                tp->id, tp->otime, tp->time, tp->size, tp->priority);
         if ((write(proc_fd, text_buf, strlen(text_buf))) == -1) {
             perror("sync_traffic_data: write");
             exit(1);

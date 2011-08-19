@@ -5,7 +5,8 @@
 //#define DEBUG
 
 typedef struct traffic_data {
-    unsigned long long time;        /* In millisecond */
+    unsigned long long otime;       /* original time, in millisecond */
+    unsigned long long time;        /* scheduled time, in millisecond */
     unsigned int size;              /* Size of the packet */
     int priority;                   /* Priority of the packet */
     struct lnode list;              /* Internel list structure */

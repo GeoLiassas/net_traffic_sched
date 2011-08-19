@@ -111,6 +111,7 @@ tfc_t *build_traffic_pcap(char *fpath, char *target_ip)
                     perror("build_traffic_pcap: malloc");
                 }
                 tp->size = ntohs(ip_hdr->ip_len);
+                tp->otime = header.ts.tv_sec*1000 + header.ts.tv_usec/1000;
                 tp->time = header.ts.tv_sec*1000 + header.ts.tv_usec/1000;
                 tp->pkt = NULL;
                 tp->priority = 1;
