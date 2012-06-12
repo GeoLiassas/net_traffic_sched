@@ -1,0 +1,74 @@
+802.11 Packet scheduler for Power Saving
+
+
+
+******************Source Structure
+==================================
+root/                       
+   k/                       /* kernel module */
+   pcap_data/               /* pcap testing data */
+   README
+   Makefile
+   *.c || *.h               /* application level code */
+
+
+*******************Compile
+==================================
+Use "make" to compile source codes. The top level Makefile only compiles application level code. To compile kernel module, use the Makefile in the folder "k".
+
+
+********************Usage
+==================================
+Several executables are provided after making the project. They are:
+    ./scheduler
+    ./replay_pcap
+The usage of each executable will be given when input the above commands.
+
+And Kernel object is located at: ./k/k_flow_control.ko
+
+
+*********************Scenario
+==================================
+Assume:
+    <TARGET_IP> = 192.168.10.1
+    <ORIGINAL_TRAFFIC> = pcap_data/brower2.pcap
+
+1. Insert kernel object:
+    insmod ./k_flow_control.ko target=<TARGET_IP>
+
+2. Provide sharped traffic information to the kernel module:
+    ./scheduler -g -t <TARGET_IP> -s <ORIGINAL_TRAFFIC>
+
+    /var/log/messages should print:
+            DD receiverd, flow_control open, where "DD" is the number of
+            traffic data the kernel module accepts. Now it is ready to
+            track and delay these packets.
+
+3. Replay the original packets
+    ./replay_pcap -t <TARGET_IP> -s <ORIGINAL_TRAFFIC>
+
+4. The traffic should be sharped by the kernel module and sent to the machine with <TARGET_IP>. In that machine, you can obtain the traffic again into a pcap file. Assuming the file name is <SHARPED_TRAFFIC>, then, the following command can be used to compare the actual result with the estimated one.
+    ./scheduler -c <SHARPED_TRAFFIC> -t <TARGET_IP> -s<ORIGINAL_TRAFFIC>
+
+
+*****************Comparison output
+==================================
+The output of the comparsion contains several columns: 
+[index] - [packet identifier]:
+    index is a self increment number which is used to count the packets.
+    packet identifer consists of the combination of IP checksum and TCP/UDP checksum.
+
+[Estimated]:
+    The time difference of current packet and previous packet in the estimation. The estimation comes from the traffic scheduler.
+
+[Actual]
+    The time difference of current packet and previous packet actually received in the target machine.
+
+[Diff]:
+    The time difference of estimated and actual packet arrival time for current packet.
+
+[Flag]:
+    Due to the traffic burst, packet loss is unavoidable. If application fail to match a estimated packet in the result, this flag is cleaned. otherwise it is "M" which means "result matched". Meanwhile, if this flag is unset (packet loss), the "Actual" column will be "---" since the data cannot be provided.
+
+
+
