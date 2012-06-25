@@ -7,7 +7,9 @@ targets = scheduler replay_pcap
 all: $(targets)
 
 scheduler: scheduler.o ts_pcap.o
+	cc $^ $(LDFLAGS) -o $@
 replay_pcap: replay_pcap.o ts_pcap.o
+	cc $^ $(LDFLAGS) -o $@
 
 .PHONY: clean
 clean:
