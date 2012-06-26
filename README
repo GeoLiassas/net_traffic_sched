@@ -31,7 +31,7 @@ And Kernel object is located at: ./k/k_flow_control.ko
 ==================================
 Assume:
     <TARGET_IP> = 192.168.10.1
-    <ORIGINAL_TRAFFIC> = pcap_data/brower2.pcap
+    <ORIGINAL_TRAFFIC> = pcap_data/browse2.pcap
 
 1. Insert kernel object:
     insmod ./k_flow_control.ko target=<TARGET_IP>
@@ -39,10 +39,11 @@ Assume:
 2. Provide sharped traffic information to the kernel module:
     ./scheduler -g -t <TARGET_IP> -s <ORIGINAL_TRAFFIC>
 
-    /var/log/messages should print:
+    /var/log/messages or /var/log/syslog should print:
             DD receiverd, flow_control open, where "DD" is the number of
             traffic data the kernel module accepts. Now it is ready to
             track and delay these packets.
+    Use: sudo tail -f /var/log/syslog  for live syslog traffic. 
 
 3. Replay the original packets
     ./replay_pcap -t <TARGET_IP> -s <ORIGINAL_TRAFFIC>
