@@ -11,4 +11,4 @@ scheduler
 Module.symvers
 *.mod.c
 modules.order
-
+*~
