@@ -11,6 +11,7 @@
 
 #include "../scheduler.h"
 
+#include <asm/div64.h>
 /*
  * k_flow_control: Kernel flow control
  * ===================================
@@ -361,8 +362,10 @@ queue_callback(struct nf_queue_entry *entry,
     //calculate time shift
     if (time_shift == 0)
         time_shift = cal_timeshift(tfc_curr);
-    else
-        time_shift = (time_shift * 7 + cal_timeshift(tfc_curr) * 3) / 10;
+    else {
+	uint64_t temp = (time_shift * 7 + cal_timeshift(tfc_curr) * 3);
+        time_shift =  do_div(temp, 10);
+    }
 
     //determine if we should start to reinject packets.
     qlp = tfc_curr;
@@ -477,11 +480,12 @@ static void __exit pkts_exit(void) {
     remove_proc_entry(PROC_F_PREDICTION, proc_dir);
     remove_proc_entry(PROC_DIR, NULL);
 
-    /* free memory */
+    // free memory 
     dclist_foreach_safe(ln, ltemp, &headt.list) {
         tp = dclist_outer(ln, tfc_t, list);
         kfree(tp);
     }
+ 
     printk(KERN_INFO "pkt_scheduler ends\n");
 }
 
