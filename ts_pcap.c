@@ -6,7 +6,7 @@
 #include <net/ethernet.h>
 #include <netinet/ip.h>
 #include <arpa/inet.h>
-
+#include <sys/socket.h>
 #include "scheduler.h"
 
 
